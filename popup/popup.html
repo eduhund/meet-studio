@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Enhanced Media Recorder</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Media Recorder</h1>
+
+      <div class="controls">
+        <div class="input-group">
+          <label>
+            <input type="checkbox" id="audioCheckbox" checked />
+            Record Audio
+          </label>
+          <select id="micSelect" class="device-select"></select>
+        </div>
+
+        <div class="input-group">
+          <label>
+            <input type="checkbox" id="videoCheckbox" />
+            Record Camera
+          </label>
+          <select id="cameraSelect" class="device-select"></select>
+        </div>
+
+        <div class="input-group">
+          <label>
+            <input type="checkbox" id="screenCheckbox" />
+            Record Screen
+          </label>
+        </div>
+
+        <div class="input-group">
+          <label>Quality:</label>
+          <select id="qualitySelect">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+
+        <div class="preview-container">
+          <video id="cameraPreview" autoplay muted></video>
+          <video id="screenPreview" autoplay muted></video>
+          <div class="audio-meter-container">
+            <div id="audioMeter" class="audio-meter"></div>
+          </div>
+        </div>
+
+        <button id="recordBtn">Start Recording</button>
+        <div class="status" id="statusText">Ready</div>
+      </div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
