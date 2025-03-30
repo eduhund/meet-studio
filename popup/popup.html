@@ -8,50 +8,62 @@
     <div class="container">
       <h1>Media Recorder</h1>
 
-      <div class="controls">
+      <!-- Audio Section -->
+      <div class="media-group">
         <div class="input-group">
           <label>
             <input type="checkbox" id="audioCheckbox" checked />
             Record Audio
           </label>
-          <select id="micSelect" class="device-select"></select>
         </div>
+        <select id="micSelect" class="device-select"></select>
+        <div class="audio-meter-container">
+          <div id="audioMeter" class="audio-meter"></div>
+        </div>
+      </div>
 
+      <!-- Video Section -->
+      <div class="media-group">
         <div class="input-group">
           <label>
             <input type="checkbox" id="videoCheckbox" />
             Record Camera
           </label>
-          <select id="cameraSelect" class="device-select"></select>
         </div>
+        <select id="cameraSelect" class="device-select"></select>
+        <div class="preview-container">
+          <video id="cameraPreview" autoplay muted></video>
+        </div>
+        <label>
+          <input type="checkbox" id="separateAudioCheckbox" />
+          Separate Audio File
+        </label>
+      </div>
 
+      <!-- Screen Section -->
+      <div class="media-group">
         <div class="input-group">
           <label>
             <input type="checkbox" id="screenCheckbox" />
             Record Screen
           </label>
         </div>
-
-        <div class="input-group">
-          <label>Quality:</label>
-          <select id="qualitySelect">
-            <option value="low">Low</option>
-            <option value="medium" selected>Medium</option>
-            <option value="high">High</option>
-          </select>
-        </div>
-
         <div class="preview-container">
-          <video id="cameraPreview" autoplay muted></video>
           <video id="screenPreview" autoplay muted></video>
-          <div class="audio-meter-container">
-            <div id="audioMeter" class="audio-meter"></div>
-          </div>
         </div>
-
-        <button id="recordBtn">Start Recording</button>
-        <div class="status" id="statusText">Ready</div>
       </div>
+
+      <!-- Quality Select -->
+      <label>Quality:</label>
+      <select id="qualitySelect">
+        <option value="low">Low</option>
+        <option value="medium" selected>Medium</option>
+        <option value="high">High</option>
+      </select>
+
+      <!-- Record Button -->
+      <button id="recordBtn" class="not-recording">Start Recording</button>
+      <div class="status" id="statusText">Ready</div>
     </div>
 
     <script src="popup.js"></script>

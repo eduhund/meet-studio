@@ -3,12 +3,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const audioCheckbox = document.getElementById("audioCheckbox");
   const videoCheckbox = document.getElementById("videoCheckbox");
   const screenCheckbox = document.getElementById("screenCheckbox");
+  const separateAudioCheckbox = document.getElementById(
+    "separateAudioCheckbox"
+  );
   const recordBtn = document.getElementById("recordBtn");
   const statusText = document.getElementById("statusText");
   const cameraPreview = document.getElementById("cameraPreview");
   const screenPreview = document.getElementById("screenPreview");
   const audioMeter = document.getElementById("audioMeter");
-  const devicesSelect = document.getElementById("devicesSelect");
+  const cameraSelect = document.getElementById("cameraSelect");
+  const micSelect = document.getElementById("micSelect");
   const qualitySelect = document.getElementById("qualitySelect");
 
   // State variables
@@ -56,34 +60,35 @@ document.addEventListener("DOMContentLoaded", () => {
     const audioDevices = devices.filter((d) => d.kind === "audioinput");
 
     // Update camera select
-    const cameraSelect = document.getElementById("cameraSelect");
-    cameraSelect.innerHTML = "";
-    videoDevices.forEach((device) => {
-      const option = document.createElement("option");
-      option.value = device.deviceId;
-      option.text = device.label || `Camera ${cameraSelect.length + 1}`;
-      cameraSelect.appendChild(option);
-    });
+    cameraSelect.innerHTML = videoDevices
+      .map(
+        (device) =>
+          `<option value="${device.deviceId}">${
+            device.label || `Camera ${cameraSelect.length + 1}`
+          }</option>`
+      )
+      .join("");
 
     // Update microphone select
-    const micSelect = document.getElementById("micSelect");
-    micSelect.innerHTML = "";
-    audioDevices.forEach((device) => {
-      const option = document.createElement("option");
-      option.value = device.deviceId;
-      option.text = device.label || `Microphone ${micSelect.length + 1}`;
-      micSelect.appendChild(option);
-    });
+    micSelect.innerHTML = audioDevices
+      .map(
+        (device) =>
+          `<option value="${device.deviceId}">${
+            device.label || `Mic ${micSelect.length + 1}`
+          }</option>`
+      )
+      .join("");
   }
 
   async function startPreviews() {
     try {
       // Start camera preview if enabled
       if (videoCheckbox.checked) {
-        const cameraId = document.getElementById("cameraSelect").value;
         const constraints = {
           video: {
-            deviceId: cameraId ? { exact: cameraId } : undefined,
+            deviceId: cameraSelect.value
+              ? { exact: cameraSelect.value }
+              : undefined,
             ...qualityPresets[qualitySelect.value].video,
           },
           audio: false,
@@ -91,12 +96,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         cameraPreview.srcObject = stream;
-        cameraPreview.style.objectFit = "contain"; // Fix scaling
         mediaStreams.push(stream);
       }
 
-      // Start audio meter
-      if (audioCheckbox.checked) {
+      // Start audio meter if audio enabled and not recording
+      if (audioCheckbox.checked && !isRecording) {
         await setupAudioMeter();
       }
     } catch (error) {
@@ -106,10 +110,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function setupAudioMeter() {
     try {
-      const micId = document.getElementById("micSelect").value;
+      if (analyser) {
+        microphone.disconnect();
+        audioContext.close();
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          deviceId: micId ? { exact: micId } : undefined,
+          deviceId: micSelect.value ? { exact: micSelect.value } : undefined,
           ...qualityPresets[qualitySelect.value].audio,
         },
       });
@@ -133,7 +141,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const array = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(array);
     const avg = array.reduce((a, b) => a + b) / array.length;
-    audioMeter.style.width = `${avg}%`;
+    audioMeter.style.width = `${Math.min(100, avg)}%`;
 
     requestAnimationFrame(updateAudioMeter);
   }
@@ -148,13 +156,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateButtonStyle() {
-    if (isRecording) {
-      recordBtn.classList.add("recording");
-      recordBtn.classList.remove("not-recording");
-    } else {
-      recordBtn.classList.add("not-recording");
-      recordBtn.classList.remove("recording");
-    }
+    recordBtn.classList.toggle("recording", isRecording);
+    recordBtn.classList.toggle("not-recording", !isRecording);
   }
 
   async function startRecording() {
@@ -163,30 +166,31 @@ document.addEventListener("DOMContentLoaded", () => {
       recordBtn.textContent = "Stop Recording";
       statusText.textContent = "Starting recording...";
 
-      // Clear previous recordings
       mediaRecorders = [];
-
-      // Get selected devices
-      const cameraId = document.getElementById("cameraSelect").value;
-      const micId = document.getElementById("micSelect").value;
       const quality = qualitySelect.value;
+      const shouldSeparateAudio =
+        separateAudioCheckbox.checked &&
+        audioCheckbox.checked &&
+        (videoCheckbox.checked || screenCheckbox.checked);
 
       // Record screen if enabled
       if (screenCheckbox.checked) {
-        await recordScreen(micId, quality);
+        await recordScreen(quality, shouldSeparateAudio);
       }
 
       // Record camera if enabled
       if (videoCheckbox.checked) {
-        await recordCamera(cameraId, quality);
+        await recordCamera(quality, shouldSeparateAudio);
       }
 
       // Record audio only if needed
       if (
         audioCheckbox.checked &&
-        (!screenCheckbox.checked || !videoCheckbox.checked)
+        !shouldSeparateAudio &&
+        !screenCheckbox.checked &&
+        !videoCheckbox.checked
       ) {
-        await recordAudioOnly(micId, quality);
+        await recordAudioOnly(quality);
       }
 
       statusText.textContent = "Recording...";
@@ -197,14 +201,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function recordScreen(micId, quality) {
+  async function recordScreen(quality, separateAudio) {
     const response = await chrome.runtime.sendMessage({
       action: "getScreenStream",
     });
     if (!response?.streamId) throw new Error("Screen sharing canceled");
 
     const constraints = {
-      audio: false,
+      audio: separateAudio ? false : audioCheckbox.checked,
       video: {
         mandatory: {
           chromeMediaSource: "desktop",
@@ -216,71 +220,124 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     screenPreview.srcObject = stream;
-    screenPreview.style.objectFit = "contain"; // Fix scaling
 
-    // Record video track only
-    const videoRecorder = new MediaRecorder(
-      new MediaStream(stream.getVideoTracks()),
-      {
+    if (separateAudio && audioCheckbox.checked) {
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: micSelect.value ? { exact: micSelect.value } : undefined,
+          ...qualityPresets[quality].audio,
+        },
+      });
+
+      // Record combined video
+      const videoRecorder = new MediaRecorder(
+        new MediaStream(stream.getVideoTracks()),
+        { mimeType: "video/webm;codecs=vp9", videoBitsPerSecond: 2500000 }
+      );
+
+      // Record separate audio
+      const audioRecorder = new MediaRecorder(
+        new MediaStream(audioStream.getAudioTracks()),
+        {
+          mimeType: "audio/webm",
+          audioBitsPerSecond: qualityPresets[quality].audio.bitrate,
+        }
+      );
+
+      setupRecorder(videoRecorder, "screen-video");
+      setupRecorder(audioRecorder, "screen-audio");
+      mediaRecorders.push(videoRecorder, audioRecorder);
+      mediaStreams.push(stream, audioStream);
+    } else {
+      const recorder = new MediaRecorder(stream, {
         mimeType: "video/webm;codecs=vp9",
+        audioBitsPerSecond: audioCheckbox.checked
+          ? qualityPresets[quality].audio.bitrate
+          : 0,
         videoBitsPerSecond: 2500000,
-      }
-    );
+      });
 
-    setupRecorder(videoRecorder, "screen-video");
-    mediaRecorders.push(videoRecorder);
-    mediaStreams.push(stream);
+      setupRecorder(recorder, "screen");
+      mediaRecorders.push(recorder);
+      mediaStreams.push(stream);
+    }
   }
 
-  async function recordCamera(cameraId, quality) {
+  async function recordCamera(quality, separateAudio) {
     const constraints = {
       video: {
-        deviceId: cameraId ? { exact: cameraId } : undefined,
+        deviceId: cameraSelect.value
+          ? { exact: cameraSelect.value }
+          : undefined,
         ...qualityPresets[quality].video,
       },
-      audio: false,
+      audio: separateAudio ? false : audioCheckbox.checked,
     };
 
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
-    // Record video track only
-    const videoRecorder = new MediaRecorder(
-      new MediaStream(stream.getVideoTracks()),
-      {
-        mimeType: "video/webm;codecs=vp9",
-        videoBitsPerSecond: 2500000,
-      }
-    );
+    if (separateAudio && audioCheckbox.checked) {
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: micSelect.value ? { exact: micSelect.value } : undefined,
+          ...qualityPresets[quality].audio,
+        },
+      });
 
-    setupRecorder(videoRecorder, "camera-video");
-    mediaRecorders.push(videoRecorder);
-    mediaStreams.push(stream);
+      // Record video only
+      const videoRecorder = new MediaRecorder(
+        new MediaStream(stream.getVideoTracks()),
+        { mimeType: "video/webm;codecs=vp9", videoBitsPerSecond: 2500000 }
+      );
+
+      // Record audio only
+      const audioRecorder = new MediaRecorder(
+        new MediaStream(audioStream.getAudioTracks()),
+        {
+          mimeType: "audio/webm",
+          audioBitsPerSecond: qualityPresets[quality].audio.bitrate,
+        }
+      );
+
+      setupRecorder(videoRecorder, "camera-video");
+      setupRecorder(audioRecorder, "camera-audio");
+      mediaRecorders.push(videoRecorder, audioRecorder);
+      mediaStreams.push(stream, audioStream);
+    } else {
+      const recorder = new MediaRecorder(stream, {
+        mimeType: "video/webm;codecs=vp9",
+        audioBitsPerSecond: audioCheckbox.checked
+          ? qualityPresets[quality].audio.bitrate
+          : 0,
+        videoBitsPerSecond: 2500000,
+      });
+
+      setupRecorder(recorder, "camera");
+      mediaRecorders.push(recorder);
+      mediaStreams.push(stream);
+    }
   }
 
-  async function recordAudioOnly(micId, quality) {
+  async function recordAudioOnly(quality) {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        deviceId: micId ? { exact: micId } : undefined,
+        deviceId: micSelect.value ? { exact: micSelect.value } : undefined,
         ...qualityPresets[quality].audio,
       },
     });
 
-    const audioRecorder = new MediaRecorder(
-      new MediaStream(stream.getAudioTracks()),
-      {
-        mimeType: "audio/webm",
-        audioBitsPerSecond: qualityPresets[quality].audio.bitrate,
-      }
-    );
+    const recorder = new MediaRecorder(stream, {
+      mimeType: "audio/webm",
+      audioBitsPerSecond: qualityPresets[quality].audio.bitrate,
+    });
 
-    setupRecorder(audioRecorder, "audio");
-    mediaRecorders.push(audioRecorder);
+    setupRecorder(recorder, "audio");
+    mediaRecorders.push(recorder);
     mediaStreams.push(stream);
   }
 
   function setupRecorder(recorder, type) {
     const chunks = [];
-
     recorder.ondataavailable = (e) => chunks.push(e.data);
     recorder.onstop = () => saveRecording(chunks, type);
     recorder.start(100);
@@ -290,15 +347,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const blob = new Blob(chunks, { type: chunks[0].type });
     const url = URL.createObjectURL(blob);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    let filename, ext;
-
-    if (type.includes("video")) {
-      ext = "webm";
-      filename = `${type}-${timestamp}.${ext}`;
-    } else {
-      ext = "webm";
-      filename = `audio-${timestamp}.${ext}`;
-    }
+    const ext = type.includes("audio") ? "webm" : "webm";
+    const filename = `${type}-${timestamp}.${ext}`;
 
     chrome.downloads.download({ url, filename });
   }
@@ -308,70 +358,69 @@ document.addEventListener("DOMContentLoaded", () => {
     recordBtn.textContent = "Start Recording";
     statusText.textContent = "Stopping recording...";
 
-    // Stop all recorders
-    mediaRecorders.forEach((recorder) => {
-      if (recorder.state !== "inactive") recorder.stop();
-    });
-
-    // Stop all streams except previews
-    mediaStreams.forEach((stream) => {
-      if (
-        stream !== cameraPreview.srcObject &&
-        stream !== screenPreview.srcObject
-      ) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-    });
-
-    mediaRecorders = [];
-    mediaStreams = mediaStreams.filter(
-      (s) => s === cameraPreview.srcObject || s === screenPreview.srcObject
+    mediaRecorders.forEach(
+      (recorder) => recorder.state !== "inactive" && recorder.stop()
     );
+    mediaRecorders = [];
+
+    // Restart audio meter if needed
+    if (audioCheckbox.checked) {
+      await setupAudioMeter();
+    }
 
     statusText.textContent = "Recording stopped";
   }
 
   function updateUI() {
-    if (screenCheckbox.checked) {
-      screenPreview.style.display = "block";
-    } else {
-      screenPreview.style.display = "none";
-    }
+    // Show/hide previews
+    cameraPreview.style.display = videoCheckbox.checked ? "block" : "none";
+    screenPreview.style.display = screenCheckbox.checked ? "block" : "none";
 
-    if (videoCheckbox.checked) {
-      cameraPreview.style.display = "block";
-    } else {
-      cameraPreview.style.display = "none";
-    }
+    // Update separate audio checkbox visibility
+    separateAudioCheckbox.parentElement.style.display =
+      audioCheckbox.checked && (videoCheckbox.checked || screenCheckbox.checked)
+        ? "block"
+        : "none";
 
-    if (audioCheckbox.checked) {
-      audioMeter.style.display = "block";
-    } else {
-      audioMeter.style.display = "none";
-    }
+    // Update device selects availability
+    cameraSelect.disabled = !videoCheckbox.checked;
+    micSelect.disabled = !audioCheckbox.checked;
   }
 
   // Event listeners
   audioCheckbox.addEventListener("change", () => {
     updateUI();
     if (audioCheckbox.checked) setupAudioMeter();
+    else if (analyser) {
+      microphone.disconnect();
+      audioContext.close();
+      analyser = null;
+    }
   });
 
   videoCheckbox.addEventListener("change", () => {
     updateUI();
     if (videoCheckbox.checked) startPreviews();
+    else if (cameraPreview.srcObject) {
+      cameraPreview.srcObject.getTracks().forEach((track) => track.stop());
+      cameraPreview.srcObject = null;
+    }
   });
 
   screenCheckbox.addEventListener("change", updateUI);
   recordBtn.addEventListener("click", toggleRecording);
 
-  document
-    .getElementById("cameraSelect")
-    .addEventListener("change", startPreviews);
-  document.getElementById("micSelect").addEventListener("change", () => {
+  cameraSelect.addEventListener("change", startPreviews);
+  micSelect.addEventListener(
+    "change",
+    () => audioCheckbox.checked && setupAudioMeter()
+  );
+  qualitySelect.addEventListener("change", () => {
+    if (videoCheckbox.checked) startPreviews();
     if (audioCheckbox.checked) setupAudioMeter();
   });
 
-  // Initial button style
+  // Initial setup
   updateButtonStyle();
+  updateUI();
 });
