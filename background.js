@@ -3,6 +3,17 @@ let streamConfigs = [];
 
 chrome.runtime.onInstalled.addListener(() => {});
 
+chrome.action.onClicked.addListener(async (tab) => {
+  if (isRecording) {
+    await stopOffscreenRecording();
+    isRecording = false;
+    updateIcon(false);
+  } else {
+    chrome.action.setPopup({ popup: "popup.html" });
+    chrome.action.openPopup();
+  }
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg.type === "START_RECORDING") {

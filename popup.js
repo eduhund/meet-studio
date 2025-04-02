@@ -2,7 +2,6 @@ import { checkPermissions } from "./permissions.js";
 import { createSourceBlock } from "./ui/deviceSelector.js";
 import { createVolumeIndicator } from "./ui/volumeIndicator.js";
 import { createVideoPreview } from "./ui/videoPreview.js";
-import { createGroupSettings } from "./ui/groupSettings.js";
 
 let micStream, camStream, screenStream;
 let isRecording = false;
@@ -14,8 +13,6 @@ const state = {
   systemAudioEnabled: false,
   micDeviceId: null,
   camDeviceId: null,
-  micCamSeparate: false,
-  screenAudioSeparate: false,
 };
 
 const loader = document.getElementById("loader");
@@ -123,24 +120,6 @@ async function renderSources(devices) {
       state.systemAudioEnabled = enabled;
     }
   );
-
-  createGroupSettings(
-    "mic-cam-group",
-    "Record microphone and camera separately",
-    (val) => {
-      state.micCamSeparate = val;
-    },
-    () => state.micEnabled && state.camEnabled
-  );
-
-  createGroupSettings(
-    "screen-audio-group",
-    "Record screen and system audio separately",
-    (val) => {
-      state.screenAudioSeparate = val;
-    },
-    () => state.screenEnabled && state.systemAudioEnabled
-  );
 }
 
 recordButton.onclick = async () => {
@@ -148,7 +127,7 @@ recordButton.onclick = async () => {
     const now = new Date().toISOString().replace(/[:.]/g, "-");
     const configs = [];
 
-    if (state.micEnabled && (!state.camEnabled || state.micCamSeparate)) {
+    if (state.micEnabled) {
       configs.push({
         streamId: "mic",
         filename: `${now}-mic.webm`,
@@ -161,7 +140,7 @@ recordButton.onclick = async () => {
       });
     }
 
-    if (state.camEnabled && (!state.micEnabled || state.micCamSeparate)) {
+    if (state.camEnabled) {
       configs.push({
         streamId: "cam",
         filename: `${now}-camera.webm`,
@@ -174,40 +153,20 @@ recordButton.onclick = async () => {
       });
     }
 
-    if (state.micEnabled && state.camEnabled && !state.micCamSeparate) {
+    if (state.screenEnabled) {
       configs.push({
-        streamId: "mic-camera",
-        filename: `${now}-mic-camera.webm`,
-        tracks: [
-          {
-            kind: "audio",
-            constraints: { audio: { deviceId: state.micDeviceId } },
-          },
-          {
-            kind: "video",
-            constraints: { video: { deviceId: state.camDeviceId } },
-          },
-        ],
+        streamId: "screen",
+        filename: `${now}-screen.webm`,
+        tracks: [{ kind: "video", constraints: { video: true } }],
       });
     }
 
-    if (state.screenEnabled) {
-      if (state.systemAudioEnabled && !state.screenAudioSeparate) {
-        configs.push({
-          streamId: "screen-audio",
-          filename: `${now}-screen-audio.webm`,
-          tracks: [
-            { kind: "video", constraints: { video: true } },
-            { kind: "audio", constraints: { audio: true } },
-          ],
-        });
-      } else {
-        configs.push({
-          streamId: "screen",
-          filename: `${now}-screen.webm`,
-          tracks: [{ kind: "video", constraints: { video: true } }],
-        });
-      }
+    if (state.systemAudioEnabled) {
+      configs.push({
+        streamId: "system-audio",
+        filename: `${now}-system-audio.webm`,
+        tracks: [{ kind: "audio", constraints: { audio: true } }],
+      });
     }
 
     const res = await chrome.runtime.sendMessage({
@@ -218,7 +177,6 @@ recordButton.onclick = async () => {
       isRecording = true;
       recordButton.classList.add("recording");
       recordButton.textContent = "Stop Recording";
-
       window.close();
     }
   } else {
