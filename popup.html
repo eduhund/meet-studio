@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meet Studio</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div id="app" class="app-container">
+      <div id="loader" class="loader-screen">
+        <img src="assets/logo.png" alt="Meet Studio Logo" class="logo" />
+        <div class="spinner"></div>
+      </div>
+      <div id="content" class="hidden">
+        <div id="microphone-settings" class="source-block"></div>
+        <div id="camera-settings" class="source-block"></div>
+        <div id="screen-settings" class="source-block"></div>
+        <div id="system-audio-settings" class="source-block"></div>
+        <div id="mic-cam-group" class="group-settings"></div>
+        <div id="screen-audio-group" class="group-settings"></div>
+        <div class="record-footer">
+          <button id="record-button">Start Recording</button>
+          <div id="permission-status"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
