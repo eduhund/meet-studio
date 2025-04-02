@@ -4,6 +4,8 @@
   "description": "Record audio and video from multiple sources locally.",
   "version": "1.0",
   "permissions": [
+    "offscreen",
+    "downloads",
     "microphone",
     "camera",
     "storage"
@@ -11,8 +13,17 @@
   "host_permissions": [
     "<all_urls>"
   ],
+  "offscreen_documents": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["offscreen.js"],
+      "reason": "BLOBS",
+      "use_dynamic_url": true
+    }
+  ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",

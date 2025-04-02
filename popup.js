@@ -1,15 +1,10 @@
 import { checkPermissions } from "./permissions.js";
-import { AudioRecorder } from "./recorder/audioRecorder.js";
-import { VideoRecorder } from "./recorder/videoRecorder.js";
-import { ScreenRecorder } from "./recorder/screenRecorder.js";
 import { createSourceBlock } from "./ui/deviceSelector.js";
 import { createVolumeIndicator } from "./ui/volumeIndicator.js";
 import { createVideoPreview } from "./ui/videoPreview.js";
 import { createGroupSettings } from "./ui/groupSettings.js";
 
-let micRecorder, camRecorder, screenRecorder;
 let micStream, camStream, screenStream;
-
 let isRecording = false;
 
 const state = {
@@ -23,7 +18,6 @@ const state = {
   screenAudioSeparate: false,
 };
 
-const app = document.getElementById("app");
 const loader = document.getElementById("loader");
 const content = document.getElementById("content");
 const recordButton = document.getElementById("record-button");
@@ -35,12 +29,11 @@ async function init() {
     ? "Ready to record"
     : "Please grant permissions";
   recordButton.disabled = !ok;
-
   if (!ok) return;
 
   const devices = await navigator.mediaDevices.enumerateDevices();
-
   await renderSources(devices);
+
   loader.classList.add("hidden");
   content.classList.remove("hidden");
 }
@@ -58,14 +51,23 @@ async function renderSources(devices) {
     async (enabled, deviceId) => {
       state.micEnabled = enabled;
       state.micDeviceId = deviceId;
-      micBlock.querySelector("video")?.remove();
       micBlock.querySelector(".volume-bar")?.remove();
       if (enabled) {
         micStream = await navigator.mediaDevices.getUserMedia({
           audio: { deviceId },
         });
-        micRecorder = new AudioRecorder(micStream, "mic");
-        createVolumeIndicator(micBlock, micRecorder); // !!должен работать до, во время и после записи!!
+        createVolumeIndicator(micBlock, {
+          getLevel: () => {
+            const ctx = new AudioContext();
+            const src = ctx.createMediaStreamSource(micStream);
+            const analyser = ctx.createAnalyser();
+            src.connect(analyser);
+            const data = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(data);
+            ctx.close();
+            return Math.max(...data) / 255;
+          },
+        });
       } else {
         micStream?.getTracks().forEach((t) => t.stop());
       }
@@ -84,10 +86,13 @@ async function renderSources(devices) {
       camBlock.querySelector("video")?.remove();
       if (enabled) {
         camStream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: {
+            deviceId,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
         });
-        camRecorder = new VideoRecorder(camStream, "camera");
-        createVideoPreview(camBlock, camStream); // !!соответствие пропорциям и вьюпорту!!
+        createVideoPreview(camBlock, camStream);
       } else {
         camStream?.getTracks().forEach((t) => t.stop());
       }
@@ -99,8 +104,10 @@ async function renderSources(devices) {
     state.screenEnabled = enabled;
     screenBlock.querySelector("video")?.remove();
     if (enabled) {
-      screenRecorder = new ScreenRecorder();
-      screenStream = await screenRecorder.selectScreenSource();
+      screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
       createVideoPreview(screenBlock, screenStream);
     } else {
       screenStream?.getTracks().forEach((t) => t.stop());
@@ -136,72 +143,91 @@ async function renderSources(devices) {
   );
 }
 
-function saveBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function updateRecordingIcon(isOn) {
-  chrome.runtime.sendMessage({ type: "SET_RECORDING_STATE", value: isOn });
-}
-
-recordButton.onclick = () => {
+recordButton.onclick = async () => {
   if (!isRecording) {
-    isRecording = true;
-    updateRecordingIcon(true);
-    recordButton.classList.add("recording");
-    recordButton.textContent = "Stop Recording";
     const now = new Date().toISOString().replace(/[:.]/g, "-");
+    const configs = [];
 
     if (state.micEnabled && (!state.camEnabled || state.micCamSeparate)) {
-      micRecorder.start((b) => saveBlob(b, `${now}-mic.webm`));
+      configs.push({
+        streamId: "mic",
+        filename: `${now}-mic.webm`,
+        tracks: [
+          {
+            kind: "audio",
+            constraints: { audio: { deviceId: state.micDeviceId } },
+          },
+        ],
+      });
     }
 
     if (state.camEnabled && (!state.micEnabled || state.micCamSeparate)) {
-      camRecorder.start((b) => saveBlob(b, `${now}-camera.webm`));
+      configs.push({
+        streamId: "cam",
+        filename: `${now}-camera.webm`,
+        tracks: [
+          {
+            kind: "video",
+            constraints: { video: { deviceId: state.camDeviceId } },
+          },
+        ],
+      });
     }
 
     if (state.micEnabled && state.camEnabled && !state.micCamSeparate) {
-      const combinedStream = new MediaStream([
-        ...camStream.getVideoTracks(),
-        ...micStream.getAudioTracks(),
-      ]);
-      const recorder = new VideoRecorder(combinedStream, "mic-camera");
-      recorder.start((b) => saveBlob(b, `${now}-mic-camera.webm`));
+      configs.push({
+        streamId: "mic-camera",
+        filename: `${now}-mic-camera.webm`,
+        tracks: [
+          {
+            kind: "audio",
+            constraints: { audio: { deviceId: state.micDeviceId } },
+          },
+          {
+            kind: "video",
+            constraints: { video: { deviceId: state.camDeviceId } },
+          },
+        ],
+      });
     }
 
-    if (
-      state.screenEnabled &&
-      state.systemAudioEnabled &&
-      !state.screenAudioSeparate
-    ) {
-      const combinedStream = new MediaStream([
-        ...screenStream.getVideoTracks(),
-        ...screenStream.getAudioTracks(),
-      ]);
-      const recorder = new VideoRecorder(combinedStream, "screen-audio");
-      recorder.start((b) => saveBlob(b, `${now}-screen-audio.webm`));
+    if (state.screenEnabled) {
+      if (state.systemAudioEnabled && !state.screenAudioSeparate) {
+        configs.push({
+          streamId: "screen-audio",
+          filename: `${now}-screen-audio.webm`,
+          tracks: [
+            { kind: "video", constraints: { video: true } },
+            { kind: "audio", constraints: { audio: true } },
+          ],
+        });
+      } else {
+        configs.push({
+          streamId: "screen",
+          filename: `${now}-screen.webm`,
+          tracks: [{ kind: "video", constraints: { video: true } }],
+        });
+      }
     }
 
-    if (
-      state.screenEnabled &&
-      (!state.systemAudioEnabled || state.screenAudioSeparate)
-    ) {
-      screenRecorder.start((b) => saveBlob(b, `${now}-screen.webm`));
+    const res = await chrome.runtime.sendMessage({
+      type: "START_RECORDING",
+      payload: configs,
+    });
+    if (res && res.ok) {
+      isRecording = true;
+      recordButton.classList.add("recording");
+      recordButton.textContent = "Stop Recording";
+
+      window.close();
     }
   } else {
-    isRecording = false;
-    updateRecordingIcon(false);
-    recordButton.classList.remove("recording");
-    recordButton.textContent = "Start Recording";
-
-    micRecorder?.stop();
-    camRecorder?.stop();
-    screenRecorder?.stop();
+    const res = await chrome.runtime.sendMessage({ type: "STOP_RECORDING" });
+    if (res && res.ok) {
+      isRecording = false;
+      recordButton.classList.remove("recording");
+      recordButton.textContent = "Start Recording";
+    }
   }
 };
 
