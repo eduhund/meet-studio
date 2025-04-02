@@ -55,10 +55,6 @@ body {
   padding: 8px 0;
 }
 
-.group-settings {
-  padding: 6px 0;
-}
-
 .preview {
   width: 100%;
   aspect-ratio: 16 / 9;

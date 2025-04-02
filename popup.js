@@ -3,14 +3,12 @@ import { createSourceBlock } from "./ui/deviceSelector.js";
 import { createVolumeIndicator } from "./ui/volumeIndicator.js";
 import { createVideoPreview } from "./ui/videoPreview.js";
 
-let micStream, camStream, screenStream;
+let micStream, camStream;
 let isRecording = false;
 
 const state = {
   micEnabled: true,
   camEnabled: true,
-  screenEnabled: false,
-  systemAudioEnabled: false,
   micDeviceId: null,
   camDeviceId: null,
 };
@@ -95,31 +93,6 @@ async function renderSources(devices) {
       }
     }
   );
-
-  const screenBlock = document.getElementById("screen-settings");
-  createSourceBlock("Screen", [], false, screenBlock, async (enabled) => {
-    state.screenEnabled = enabled;
-    screenBlock.querySelector("video")?.remove();
-    if (enabled) {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-      });
-      createVideoPreview(screenBlock, screenStream);
-    } else {
-      screenStream?.getTracks().forEach((t) => t.stop());
-    }
-  });
-
-  createSourceBlock(
-    "System Audio",
-    [],
-    false,
-    document.getElementById("system-audio-settings"),
-    (enabled) => {
-      state.systemAudioEnabled = enabled;
-    }
-  );
 }
 
 recordButton.onclick = async () => {
@@ -127,45 +100,33 @@ recordButton.onclick = async () => {
     const now = new Date().toISOString().replace(/[:.]/g, "-");
     const configs = [];
 
-    if (state.micEnabled) {
+    if (state.micEnabled && state.micDeviceId) {
       configs.push({
         streamId: "mic",
         filename: `${now}-mic.webm`,
         tracks: [
           {
             kind: "audio",
-            constraints: { audio: { deviceId: state.micDeviceId } },
+            constraints: {
+              audio: { deviceId: state.micDeviceId },
+            },
           },
         ],
       });
     }
 
-    if (state.camEnabled) {
+    if (state.camEnabled && state.camDeviceId) {
       configs.push({
         streamId: "cam",
         filename: `${now}-camera.webm`,
         tracks: [
           {
             kind: "video",
-            constraints: { video: { deviceId: state.camDeviceId } },
+            constraints: {
+              video: { deviceId: state.camDeviceId },
+            },
           },
         ],
-      });
-    }
-
-    if (state.screenEnabled) {
-      configs.push({
-        streamId: "screen",
-        filename: `${now}-screen.webm`,
-        tracks: [{ kind: "video", constraints: { video: true } }],
-      });
-    }
-
-    if (state.systemAudioEnabled) {
-      configs.push({
-        streamId: "system-audio",
-        filename: `${now}-system-audio.webm`,
-        tracks: [{ kind: "audio", constraints: { audio: true } }],
       });
     }
 
@@ -173,6 +134,7 @@ recordButton.onclick = async () => {
       type: "START_RECORDING",
       payload: configs,
     });
+
     if (res && res.ok) {
       isRecording = true;
       recordButton.classList.add("recording");
